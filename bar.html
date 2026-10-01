@@ -1,0 +1,126 @@
+<title>Random Bar</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+  /* Layout: one centered panel; the bar is the only bold element. */
+  :root {
+    --bg: #f3f5f8;
+    --panel: #ffffff;
+    --fg: #17202e;
+    --muted: #5d6878;
+    --track: #e2e7ee;
+    --fill: #2f6fdd;
+    --fill-2: #4fb3c9;
+    --ring: #2f6fdd55;
+    --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f141c; --panel: #171e29; --fg: #e8edf4; --muted: #95a1b3;
+      --track: #263142; --fill: #5b93f0; --fill-2: #63c7da; --ring: #5b93f066;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f141c; --panel: #171e29; --fg: #e8edf4; --muted: #95a1b3;
+    --track: #263142; --fill: #5b93f0; --fill-2: #63c7da; --ring: #5b93f066;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-display);
+    display: grid;
+    place-items: center;
+    padding-inline: 16px;
+    box-sizing: border-box;
+  }
+  .panel {
+    width: 100%;
+    max-width: 34rem;
+    background: var(--panel);
+    border-radius: 14px;
+    padding: 2rem 1.75rem;
+    box-sizing: border-box;
+    display: grid;
+    gap: 1.5rem;
+  }
+  .head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+  h1 { margin: 0; font-size: 1.1rem; font-weight: 500; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .value {
+    font-family: var(--font-mono);
+    font-size: 3rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .track {
+    height: 1.75rem;
+    background: var(--track);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--fill), var(--fill-2));
+    border-radius: inherit;
+    transition: width 0.9s cubic-bezier(.2,.8,.2,1);
+  }
+  .scale {
+    display: flex; justify-content: space-between;
+    font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted);
+    margin-top: -0.9rem;
+  }
+  button {
+    justify-self: start;
+    font: 700 1rem var(--font-display);
+    color: var(--panel);
+    background: var(--fg);
+    border: 0;
+    border-radius: 10px;
+    padding: 0.75rem 1.4rem;
+    cursor: pointer;
+  }
+  button:hover { opacity: 0.88; }
+  button:focus-visible { outline: 3px solid var(--ring); outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) { .fill { transition: none; } }
+</style>
+
+<main class="panel">
+  <div class="head">
+    <h1>Random fill</h1>
+    <div class="value" id="value" aria-live="polite">0%</div>
+  </div>
+  <div class="track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="track">
+    <div class="fill" id="fill"></div>
+  </div>
+  <div class="scale"><span>0</span><span>50</span><span>100</span></div>
+  <button id="roll" type="button">Roll again</button>
+</main>
+
+<script>
+  const fill = document.getElementById("fill");
+  const track = document.getElementById("track");
+  const value = document.getElementById("value");
+  let timer;
+
+  function roll() {
+    const target = Math.floor(Math.random() * 101);
+    fill.style.width = target + "%";
+    track.setAttribute("aria-valuenow", target);
+    clearInterval(timer);
+    let shown = parseInt(value.textContent, 10) || 0;
+    const step = target > shown ? 1 : -1;
+    if (shown === target) return;
+    timer = setInterval(() => {
+      shown += step;
+      value.textContent = shown + "%";
+      if (shown === target) clearInterval(timer);
+    }, 600 / Math.max(1, Math.abs(target - shown)));
+  }
+
+  document.getElementById("roll").addEventListener("click", roll);
+  requestAnimationFrame(roll);
+</script>

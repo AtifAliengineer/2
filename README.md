@@ -20,3 +20,7 @@ Example output:
 ```
 [#################-----------------------]  43%
 ```
+
+## Browser bar
+
+Open `bar.html` in any web browser. The bar fills to a random 0–100%; click **Roll again** for a new number.
