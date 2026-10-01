@@ -32,3 +32,9 @@ GitHub only shows the code of `bar.html`; it can't run it. To run your own copy,
 **Try it online:** [open the PID loop](https://claude.ai/artifact/98hQxziYUNTmeUXmr9zV45)
 
 `pid.html` simulates a PID controller on a first-order process. Move the setpoint and the process value follows it automatically. Tune Kp, Ki and Kd, turn on auto setpoint steps, or kick in a load disturbance.
+
+## Master setpoint follow
+
+**Try it online:** [open the multi-loop page](https://claude.ai/artifact/SPms8p5yZZkBGSDk1KPbwE)
+
+`pid-follow.html` runs four PID loops on different processes. Change the master setpoint and every loop follows it automatically.

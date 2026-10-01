@@ -1,0 +1,248 @@
+<title>Master Setpoint Follow</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  /* Layout: master setpoint control on top, shared trend, then one faceplate per follower loop. */
+  :root {
+    --bg: #eef1f4;
+    --panel: #ffffff;
+    --fg: #1a2230;
+    --muted: #5f6b7a;
+    --grid: #dde3ea;
+    --sp: #d98a00;
+    --l1: #2563c9;
+    --l2: #8a46c2;
+    --l3: #128a8a;
+    --l4: #c2410c;
+    --ok: #2f8a57;
+    --ok-bg: #e2f3e9;
+    --move: #9a6a00;
+    --move-bg: #fbf0d6;
+    --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10151c; --panel: #181f29; --fg: #e6ebf1; --muted: #93a0b0; --grid: #29323f;
+      --sp: #f2b33d; --l1: #6aa3ff; --l2: #c08cf0; --l3: #4fd0cf; --l4: #ff8a57;
+      --ok: #6fd39b; --ok-bg: #1d3528; --move: #f2c76a; --move-bg: #3a2f14;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10151c; --panel: #181f29; --fg: #e6ebf1; --muted: #93a0b0; --grid: #29323f;
+    --sp: #f2b33d; --l1: #6aa3ff; --l2: #c08cf0; --l3: #4fd0cf; --l4: #ff8a57;
+    --ok: #6fd39b; --ok-bg: #1d3528; --move: #f2c76a; --move-bg: #3a2f14;
+    color-scheme: dark;
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); padding-inline: 16px; padding-block: 20px 32px; }
+  .wrap { max-width: 56rem; margin: 0 auto; display: grid; gap: 14px; }
+  h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+  .sub { margin: 2px 0 0; color: var(--muted); font-size: 0.875rem; }
+  .card { background: var(--panel); border-radius: 10px; padding: 14px; }
+  .master { display: grid; gap: 12px; }
+  .mhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .mhead .k { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .mhead .v { font-family: var(--font-mono); font-size: 2rem; color: var(--sp); font-variant-numeric: tabular-nums; }
+  .sum { font-size: 0.875rem; color: var(--muted); }
+  input[type=range] { width: 100%; accent-color: var(--sp); }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: 600 0.875rem var(--font-body); color: var(--fg); background: var(--bg); border: 1px solid var(--grid); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--l1); outline-offset: 2px; }
+  button.on { background: var(--fg); color: var(--panel); border-color: var(--fg); }
+  .chart { padding: 8px; }
+  canvas { display: block; width: 100%; height: 260px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.78rem; color: var(--muted); padding: 4px 6px 2px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+  .loops { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .loop { display: grid; gap: 8px; }
+  .lhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .lname { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .lname small { font-weight: 400; color: var(--muted); }
+  .pill { font-size: 0.72rem; font-weight: 600; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { color: var(--ok); background: var(--ok-bg); }
+  .pill.move { color: var(--move); background: var(--move-bg); }
+  .vals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .vals .k { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .vals .v { font-family: var(--font-mono); font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; background: var(--grid); border-radius: 999px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: currentColor; }
+  .meta { font-size: 0.72rem; color: var(--muted); font-family: var(--font-mono); }
+  .note { color: var(--muted); font-size: 0.8rem; margin: 0; }
+  @media (max-width: 600px) { .loops { grid-template-columns: minmax(0, 1fr); } canvas { height: 210px; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Master Setpoint Follow</h1>
+    <p class="sub">Change the master setpoint. All four PID loops pick it up and drive their process to it automatically.</p>
+  </header>
+
+  <section class="card master">
+    <div class="mhead">
+      <div><div class="k">Master setpoint</div><div class="v" id="mVal">60</div></div>
+      <div class="sum" id="summary" aria-live="polite">0 of 4 loops on setpoint</div>
+    </div>
+    <input type="range" id="sp" min="0" max="100" step="1" value="60" aria-label="Master setpoint">
+    <div class="btns">
+      <button type="button" data-sp="20">SP 20</button>
+      <button type="button" data-sp="50">SP 50</button>
+      <button type="button" data-sp="80">SP 80</button>
+      <button type="button" id="rand">Random SP</button>
+      <button type="button" id="auto">Auto steps: off</button>
+      <button type="button" id="pause">Pause</button>
+      <button type="button" id="reset">Reset</button>
+    </div>
+  </section>
+
+  <section class="card chart">
+    <canvas id="cv" aria-label="Trend of master setpoint and the four process values"></canvas>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="loops" id="loops"></section>
+
+  <p class="note">Each loop controls a different first-order process with dead time, so they respond at different speeds. Every loop is PI-tuned for its own process (IMC rules). "On setpoint" means within ±1 unit. Disturb knocks that one process down; its controller recovers on its own.</p>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const DT = 0.05, STEPS_PER_FRAME = 2, WINDOW = 60;
+
+  const SPECS = [
+    { name: "Loop 1", tag: "TIC-101", color: "--l1", K: 1.0, tau: 3,  dead: 0.3 },
+    { name: "Loop 2", tag: "TIC-102", color: "--l2", K: 1.5, tau: 6,  dead: 0.6 },
+    { name: "Loop 3", tag: "LIC-201", color: "--l3", K: 0.8, tau: 10, dead: 1.0 },
+    { name: "Loop 4", tag: "FIC-301", color: "--l4", K: 1.2, tau: 4,  dead: 1.5 },
+  ];
+
+  let sp = 60, paused = false, autoSteps = false, t, nextAuto, hist, loops;
+
+  function init() {
+    t = 0; nextAuto = 6; hist = [];
+    loops = SPECS.map(p => {
+      const lambda = Math.max(p.tau / 2, p.dead * 2);
+      const kc = p.tau / (p.K * (lambda + p.dead));
+      return { ...p, kc, ki: kc / p.tau, pv: 0, integ: 0, out: 0, dist: 0,
+               delay: new Array(Math.max(1, Math.round(p.dead / DT))).fill(0) };
+    });
+  }
+  init();
+
+  function setSp(v) {
+    sp = Math.max(0, Math.min(100, Math.round(v)));
+    $("sp").value = sp; $("mVal").textContent = sp;
+  }
+
+  function step() {
+    for (const L of loops) {
+      const err = sp - L.pv;
+      const raw = L.kc * err + L.integ + L.ki * err * DT;
+      const sat = raw > 100 || raw < 0;
+      if (!sat || (raw > 100 && err < 0) || (raw < 0 && err > 0)) L.integ += L.ki * err * DT;
+      L.out = Math.max(0, Math.min(100, L.kc * err + L.integ));
+      L.delay.push(L.out);
+      const u = L.delay.shift();
+      L.pv += (L.K * u - L.dist - L.pv) * DT / L.tau;
+      L.dist *= 0.995;
+    }
+    t += DT;
+    if (autoSteps && t >= nextAuto) { setSp(10 + Math.random() * 80); nextAuto = t + 15; }
+    hist.push([t, sp, ...loops.map(L => L.pv)]);
+    while (hist.length && hist[0][0] < t - WINDOW) hist.shift();
+  }
+
+  // Build legend and faceplates.
+  $("legend").innerHTML = `<span><i class="sw" style="background:var(--sp)"></i>Master SP</span>` +
+    SPECS.map(p => `<span><i class="sw" style="background:var(${p.color})"></i>${p.name}</span>`).join("");
+  $("loops").innerHTML = SPECS.map((p, i) => `
+    <article class="card loop" style="color:var(${p.color})">
+      <div class="lhead">
+        <div class="lname" style="color:var(--fg)"><i class="sw" style="background:var(${p.color})"></i>${p.name} <small>${p.tag}</small></div>
+        <span class="pill move" id="st${i}">Following</span>
+      </div>
+      <div class="vals" style="color:var(--fg)">
+        <div><div class="k">SP</div><div class="v" id="sp${i}">0.0</div></div>
+        <div><div class="k">PV</div><div class="v" id="pv${i}">0.0</div></div>
+        <div><div class="k">Out %</div><div class="v" id="out${i}">0.0</div></div>
+      </div>
+      <div class="bar" aria-hidden="true"><i id="bar${i}"></i></div>
+      <div class="lhead">
+        <span class="meta" id="tune${i}"></span>
+        <button type="button" data-dist="${i}">Disturb</button>
+      </div>
+    </article>`).join("");
+
+  const cv = $("cv"), ctx = cv.getContext("2d");
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  function draw() {
+    const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const Lp = 34, R = 8, T = 8, B = 22, pw = w - Lp - R, ph = h - T - B;
+    const t1 = Math.max(WINDOW, t), t0 = t1 - WINDOW;
+    const x = v => Lp + (v - t0) / WINDOW * pw, y = v => T + (1 - v / 110) * ph;
+
+    ctx.font = "11px " + css("--font-mono"); ctx.fillStyle = css("--muted"); ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1;
+    ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    for (let v = 0; v <= 100; v += 25) { ctx.beginPath(); ctx.moveTo(Lp, y(v)); ctx.lineTo(w - R, y(v)); ctx.stroke(); ctx.fillText(v, Lp - 6, y(v)); }
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    for (let tt = Math.ceil(t0 / 10) * 10; tt <= t1; tt += 10) ctx.fillText(tt + "s", x(tt), h - B + 6);
+
+    const line = (idx, color, width, dash) => {
+      if (hist.length < 2) return;
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash); ctx.beginPath();
+      hist.forEach((p, i) => { const X = x(p[0]), Y = y(Math.max(-5, Math.min(110, p[idx]))); i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
+      ctx.stroke(); ctx.setLineDash([]);
+    };
+    SPECS.forEach((p, i) => line(i + 2, css(p.color), 2, []));
+    line(1, css("--sp"), 2, [6, 4]);
+
+    let on = 0;
+    loops.forEach((L, i) => {
+      const ok = Math.abs(sp - L.pv) <= 1;
+      if (ok) on++;
+      $("sp" + i).textContent = sp.toFixed(1);
+      $("pv" + i).textContent = L.pv.toFixed(1);
+      $("out" + i).textContent = L.out.toFixed(1);
+      $("bar" + i).style.width = Math.max(0, Math.min(100, L.pv)) + "%";
+      const st = $("st" + i);
+      st.textContent = ok ? "On setpoint" : "Following";
+      st.className = "pill " + (ok ? "ok" : "move");
+      $("tune" + i).textContent = `Kp ${L.kc.toFixed(2)} · Ki ${L.ki.toFixed(2)}`;
+    });
+    $("summary").textContent = `${on} of ${loops.length} loops on setpoint`;
+  }
+
+  function frame() {
+    if (!paused) for (let i = 0; i < STEPS_PER_FRAME; i++) step();
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  $("sp").addEventListener("input", e => setSp(+e.target.value));
+  document.querySelectorAll("[data-sp]").forEach(b => b.addEventListener("click", () => setSp(+b.dataset.sp)));
+  $("rand").addEventListener("click", () => setSp(10 + Math.random() * 80));
+  $("auto").addEventListener("click", e => {
+    autoSteps = !autoSteps; nextAuto = t + 3;
+    e.target.textContent = "Auto steps: " + (autoSteps ? "on" : "off");
+    e.target.classList.toggle("on", autoSteps);
+  });
+  $("pause").addEventListener("click", e => {
+    paused = !paused; e.target.textContent = paused ? "Resume" : "Pause"; e.target.classList.toggle("on", paused);
+  });
+  $("reset").addEventListener("click", init);
+  $("loops").addEventListener("click", e => {
+    const b = e.target.closest("[data-dist]");
+    if (b) loops[+b.dataset.dist].dist = 30;
+  });
+
+  // Pre-run so the page opens mid-response to a setpoint step.
+  for (let i = 0; i < 12 / DT; i++) step();
+  requestAnimationFrame(frame);
+})();
+</script>
