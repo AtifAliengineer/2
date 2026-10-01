@@ -1,0 +1,264 @@
+<title>PID Loop Trainer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  /* Layout: instrument faceplate — live readouts, trend chart, then tuning controls. */
+  :root {
+    --bg: #eef1f4;
+    --panel: #ffffff;
+    --fg: #1a2230;
+    --muted: #5f6b7a;
+    --grid: #dde3ea;
+    --sp: #d98a00;
+    --pv: #2563c9;
+    --out: #3f9a6b;
+    --accent: #2563c9;
+    --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10151c; --panel: #181f29; --fg: #e6ebf1; --muted: #93a0b0;
+      --grid: #29323f; --sp: #f2b33d; --pv: #6aa3ff; --out: #5ec08f; --accent: #6aa3ff;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10151c; --panel: #181f29; --fg: #e6ebf1; --muted: #93a0b0;
+    --grid: #29323f; --sp: #f2b33d; --pv: #6aa3ff; --out: #5ec08f; --accent: #6aa3ff;
+    color-scheme: dark;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    padding-inline: 16px;
+    padding-block: 20px 32px;
+  }
+  .wrap { max-width: 56rem; margin: 0 auto; display: grid; gap: 14px; }
+  h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+  .sub { margin: 2px 0 0; color: var(--muted); font-size: 0.875rem; }
+  .readouts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .ro { background: var(--panel); border-radius: 10px; padding: 10px 12px; }
+  .ro .k { font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .ro .v { font-family: var(--font-mono); font-size: 1.5rem; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .sw { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+  .chart { background: var(--panel); border-radius: 10px; padding: 8px; }
+  canvas { display: block; width: 100%; height: 280px; }
+  .controls { background: var(--panel); border-radius: 10px; padding: 14px; display: grid; gap: 14px; }
+  .row { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr) 3.5rem; align-items: center; gap: 10px; }
+  .row label { font-size: 0.875rem; }
+  .row label small { display: block; color: var(--muted); font-size: 0.72rem; }
+  .row output { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .sp-row input[type=range] { accent-color: var(--sp); }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  button {
+    font: 600 0.875rem var(--font-body);
+    color: var(--fg); background: var(--bg);
+    border: 1px solid var(--grid); border-radius: 8px;
+    padding: 8px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.on { background: var(--fg); color: var(--panel); border-color: var(--fg); }
+  hr { border: 0; border-top: 1px solid var(--grid); margin: 0; }
+  .note { color: var(--muted); font-size: 0.8rem; margin: 0; }
+  @media (max-width: 560px) {
+    .readouts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    canvas { height: 220px; }
+    .row { grid-template-columns: 5.5rem minmax(0, 1fr) 3rem; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>PID Loop Trainer</h1>
+    <p class="sub">Move the setpoint. The controller drives the process to follow it automatically.</p>
+  </header>
+
+  <section class="readouts">
+    <div class="ro"><div class="k"><span class="sw" style="background:var(--sp)"></span>Setpoint SP</div><div class="v" id="roSp">0.0</div></div>
+    <div class="ro"><div class="k"><span class="sw" style="background:var(--pv)"></span>Process PV</div><div class="v" id="roPv">0.0</div></div>
+    <div class="ro"><div class="k"><span class="sw" style="background:var(--out)"></span>Output CV %</div><div class="v" id="roOut">0.0</div></div>
+    <div class="ro"><div class="k">Error SP−PV</div><div class="v" id="roErr">0.0</div></div>
+  </section>
+
+  <section class="chart"><canvas id="cv" aria-label="Trend of setpoint, process value and controller output"></canvas></section>
+
+  <section class="controls">
+    <div class="row sp-row">
+      <label for="sp">Setpoint<small>0–100 units</small></label>
+      <input type="range" id="sp" min="0" max="100" step="1" value="60">
+      <output id="spOut">60</output>
+    </div>
+    <div class="btns">
+      <button type="button" data-sp="20">SP 20</button>
+      <button type="button" data-sp="50">SP 50</button>
+      <button type="button" data-sp="80">SP 80</button>
+      <button type="button" id="rand">Random SP</button>
+      <button type="button" id="auto">Auto steps: off</button>
+      <button type="button" id="dist">Disturbance</button>
+    </div>
+    <hr>
+    <div class="row">
+      <label for="kp">Kp<small>proportional</small></label>
+      <input type="range" id="kp" min="0" max="10" step="0.1" value="2">
+      <output id="kpOut">2.0</output>
+    </div>
+    <div class="row">
+      <label for="ki">Ki<small>integral, 1/s</small></label>
+      <input type="range" id="ki" min="0" max="3" step="0.05" value="0.5">
+      <output id="kiOut">0.50</output>
+    </div>
+    <div class="row">
+      <label for="kd">Kd<small>derivative, s</small></label>
+      <input type="range" id="kd" min="0" max="3" step="0.05" value="0.3">
+      <output id="kdOut">0.30</output>
+    </div>
+    <div class="btns">
+      <button type="button" id="pause">Pause</button>
+      <button type="button" id="reset">Reset</button>
+    </div>
+    <p class="note">Process: first-order lag, gain 1, time constant 5 s, 0.5 s dead time. Output limited to 0–100% with anti-windup. Chart shows the last 60 s of simulated time.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const DT = 0.05, STEPS_PER_FRAME = 2, WINDOW = 60;
+  const TAU = 5, GAIN = 1, DEAD = 0.5;
+
+  let s;
+  function initState() {
+    s = {
+      t: 0, pv: 0, integ: 0, prevPv: 0, out: 0, dist: 0,
+      delay: new Array(Math.round(DEAD / DT)).fill(0),
+      hist: [], nextAuto: 8
+    };
+  }
+  initState();
+
+  let sp = +$("sp").value, kp = +$("kp").value, ki = +$("ki").value, kd = +$("kd").value;
+  let paused = false, autoSteps = false;
+
+  function setSp(v) {
+    sp = Math.max(0, Math.min(100, Math.round(v)));
+    $("sp").value = sp; $("spOut").textContent = sp;
+  }
+
+  function step() {
+    // PID: derivative on measurement, conditional integration for anti-windup.
+    const err = sp - s.pv;
+    const dPv = (s.pv - s.prevPv) / DT;
+    let u = kp * err + s.integ + ki * err * DT - kd * dPv;
+    const sat = u > 100 || u < 0;
+    if (!sat || (u > 100 && err < 0) || (u < 0 && err > 0)) s.integ += ki * err * DT;
+    u = Math.max(0, Math.min(100, kp * err + s.integ - kd * dPv));
+    s.out = u;
+    s.prevPv = s.pv;
+
+    // Process: dead time, then first-order lag, plus load disturbance.
+    s.delay.push(u);
+    const uDelayed = s.delay.shift();
+    s.pv += (GAIN * uDelayed - s.dist - s.pv) * DT / TAU;
+    s.dist *= 0.999;
+    s.t += DT;
+
+    if (autoSteps && s.t >= s.nextAuto) {
+      setSp(10 + Math.random() * 80);
+      s.nextAuto = s.t + 12;
+    }
+
+    s.hist.push([s.t, sp, s.pv, s.out]);
+    while (s.hist.length && s.hist[0][0] < s.t - WINDOW) s.hist.shift();
+  }
+
+  const cv = $("cv"), ctx = cv.getContext("2d");
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const L = 34, R = 8, T = 8, B = 22;
+    const pw = w - L - R, ph = h - T - B;
+    const t1 = Math.max(WINDOW, s.t), t0 = t1 - WINDOW;
+    const x = t => L + (t - t0) / WINDOW * pw;
+    const y = v => T + (1 - v / 110) * ph;
+
+    ctx.font = "11px " + css("--font-mono");
+    ctx.fillStyle = css("--muted");
+    ctx.strokeStyle = css("--grid");
+    ctx.lineWidth = 1;
+    ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    for (let v = 0; v <= 100; v += 25) {
+      ctx.beginPath(); ctx.moveTo(L, y(v)); ctx.lineTo(w - R, y(v)); ctx.stroke();
+      ctx.fillText(v, L - 6, y(v));
+    }
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    for (let tt = Math.ceil(t0 / 10) * 10; tt <= t1; tt += 10) {
+      ctx.fillText(tt + "s", x(tt), h - B + 6);
+    }
+
+    function line(idx, color, width, dash) {
+      if (s.hist.length < 2) return;
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
+      ctx.beginPath();
+      s.hist.forEach((p, i) => {
+        const X = x(p[0]), Y = y(Math.max(-5, Math.min(110, p[idx])));
+        i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
+      });
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    line(3, css("--out"), 1.5, []);
+    line(1, css("--sp"), 2, [6, 4]);
+    line(2, css("--pv"), 2.5, []);
+
+    $("roSp").textContent = sp.toFixed(1);
+    $("roPv").textContent = s.pv.toFixed(1);
+    $("roOut").textContent = s.out.toFixed(1);
+    $("roErr").textContent = (sp - s.pv).toFixed(1);
+  }
+
+  function frame() {
+    if (!paused) for (let i = 0; i < STEPS_PER_FRAME; i++) step();
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  $("sp").addEventListener("input", e => setSp(+e.target.value));
+  document.querySelectorAll("[data-sp]").forEach(b => b.addEventListener("click", () => setSp(+b.dataset.sp)));
+  $("rand").addEventListener("click", () => setSp(10 + Math.random() * 80));
+  $("auto").addEventListener("click", e => {
+    autoSteps = !autoSteps;
+    s.nextAuto = s.t + 4;
+    e.target.textContent = "Auto steps: " + (autoSteps ? "on" : "off");
+    e.target.classList.toggle("on", autoSteps);
+  });
+  $("dist").addEventListener("click", () => { s.dist = 25; });
+  [["kp", 1], ["ki", 2], ["kd", 2]].forEach(([id, dp]) => {
+    $(id).addEventListener("input", e => {
+      const v = +e.target.value;
+      if (id === "kp") kp = v; else if (id === "ki") ki = v; else kd = v;
+      $(id + "Out").textContent = v.toFixed(dp);
+    });
+  });
+  $("pause").addEventListener("click", e => {
+    paused = !paused;
+    e.target.textContent = paused ? "Resume" : "Pause";
+    e.target.classList.toggle("on", paused);
+  });
+  $("reset").addEventListener("click", () => { initState(); });
+
+  // Pre-run a few seconds so the chart opens showing a setpoint step response.
+  for (let i = 0; i < 20 / DT; i++) step();
+  requestAnimationFrame(frame);
+})();
+</script>
