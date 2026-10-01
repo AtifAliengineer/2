@@ -23,4 +23,6 @@ Example output:
 
 ## Browser bar
 
-Open `bar.html` in any web browser. The bar fills to a random 0–100%; click **Roll again** for a new number.
+**Try it online:** [open the bar](https://claude.ai/artifact/1Y7iHukk3n7yBVaPgDQfbT)
+
+GitHub only shows the code of `bar.html`; it can't run it. To run your own copy, download `bar.html` and open it in a web browser. The bar fills to a random 0–100%; click **Roll again** for a new number.
