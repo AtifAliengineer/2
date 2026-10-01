@@ -38,3 +38,9 @@ GitHub only shows the code of `bar.html`; it can't run it. To run your own copy,
 **Try it online:** [open the multi-loop page](https://claude.ai/artifact/SPms8p5yZZkBGSDk1KPbwE)
 
 `pid-follow.html` runs four PID loops on different processes. Change the master setpoint and every loop follows it automatically.
+
+## Boiler simulator
+
+**Try it online:** [open the boiler](https://claude.ai/artifact/VHnudAcUd6cAcKDDwJxbK6)
+
+`boiler.html` simulates a boiler plant on one page: deaerator level and pressure, three-element drum level with feedwater flow, and steam pressure on the burner. Steam demand changes automatically and every PID loop has its own faceplate with SP, PV, output, trend and AUTO/MAN.

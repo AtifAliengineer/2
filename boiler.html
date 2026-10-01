@@ -1,0 +1,469 @@
+<title>Boiler Control Simulator</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  /* Layout: control-room screen — status strip, live P&ID mimic, then one faceplate per PID loop. */
+  :root {
+    --bg: #e9edf1;
+    --panel: #ffffff;
+    --fg: #18212d;
+    --muted: #5d6979;
+    --line: #9aa6b4;
+    --grid: #dbe1e8;
+    --water: #2a73d9;
+    --water-fill: #8fbdf2;
+    --steam: #7b8796;
+    --fuel: #c25a10;
+    --flame: #f08a1c;
+    --flame-core: #ffd23f;
+    --signal: #8a46c2;
+    --sp: #d98a00;
+    --pv: #2a73d9;
+    --out: #2f8a57;
+    --ok: #2f8a57; --ok-bg: #e0f2e7;
+    --warn: #a35f00; --warn-bg: #fcefd2;
+    --alarm: #c42b2b; --alarm-bg: #fbe1e1;
+    --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e131a; --panel: #161d27; --fg: #e5eaf0; --muted: #93a0b0; --line: #4b5767; --grid: #27303c;
+      --water: #5c9dff; --water-fill: #24497a; --steam: #a3afbd; --fuel: #ff8f4a; --flame: #ff9a2e; --flame-core: #ffe066;
+      --signal: #c08cf0; --sp: #f2b33d; --pv: #5c9dff; --out: #5ec08f;
+      --ok: #6fd39b; --ok-bg: #1b3326; --warn: #f2c76a; --warn-bg: #3a2f14; --alarm: #ff7b7b; --alarm-bg: #3d1b1b;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e131a; --panel: #161d27; --fg: #e5eaf0; --muted: #93a0b0; --line: #4b5767; --grid: #27303c;
+    --water: #5c9dff; --water-fill: #24497a; --steam: #a3afbd; --fuel: #ff8f4a; --flame: #ff9a2e; --flame-core: #ffe066;
+    --signal: #c08cf0; --sp: #f2b33d; --pv: #5c9dff; --out: #5ec08f;
+    --ok: #6fd39b; --ok-bg: #1b3326; --warn: #f2c76a; --warn-bg: #3a2f14; --alarm: #ff7b7b; --alarm-bg: #3d1b1b;
+    color-scheme: dark;
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); padding-inline: 16px; padding-block: 16px 32px; }
+  .wrap { max-width: 72rem; margin: 0 auto; display: grid; gap: 12px; }
+  header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 10px; }
+  h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+  .sub { margin: 2px 0 0; color: var(--muted); font-size: 0.85rem; }
+  .card { background: var(--panel); border-radius: 10px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { font: 600 0.8rem var(--font-body); color: var(--fg); background: var(--bg); border: 1px solid var(--grid); border-radius: 7px; padding: 7px 11px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--muted); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  button.on { background: var(--fg); color: var(--panel); border-color: var(--fg); }
+
+  .strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; padding: 10px; }
+  .kv .k { font-size: 0.66rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+  .kv .v { font-family: var(--font-mono); font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+  .kv .v small { font-size: 0.7rem; color: var(--muted); }
+
+  .mimic { overflow-x: auto; padding: 6px; }
+  .mimic svg { display: block; width: 100%; min-width: 660px; height: auto; }
+  .pipe { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+  .pipe.water { stroke: var(--water); }
+  .pipe.steam { stroke: var(--steam); }
+  .pipe.fuel { stroke: var(--fuel); }
+  .flow { fill: none; stroke-width: 2; stroke: var(--panel); stroke-dasharray: 4 10; stroke-linecap: round; }
+  .sig { fill: none; stroke: var(--signal); stroke-width: 1.4; stroke-dasharray: 5 4; }
+  .vessel { fill: var(--panel); stroke: var(--line); stroke-width: 2.5; }
+  .liquid { fill: var(--water-fill); }
+  .valve { fill: var(--panel); stroke: var(--fg); stroke-width: 1.6; }
+  .bubble circle { fill: var(--panel); stroke: var(--signal); stroke-width: 2; }
+  .bubble .tag { font: 600 10px var(--font-mono); fill: var(--signal); text-anchor: middle; }
+  .lbl { font: 600 12px var(--font-body); fill: var(--fg); }
+  .lbl.c { text-anchor: middle; }
+  .small { font: 500 10.5px var(--font-mono); fill: var(--muted); }
+  .val { font: 500 11.5px var(--font-mono); fill: var(--fg); }
+  .val.c { text-anchor: middle; }
+  .pumpbody { fill: var(--panel); stroke: var(--fg); stroke-width: 2; }
+  .furnace { fill: var(--bg); stroke: var(--line); stroke-width: 2.5; }
+  .tube { stroke: var(--line); stroke-width: 3; }
+
+  .loops { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 10px; }
+  .fp { padding: 12px; display: grid; gap: 8px; min-width: 0; }
+  .fp-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
+  .fp-tag { font-family: var(--font-mono); font-weight: 500; color: var(--signal); font-size: 0.95rem; }
+  .fp-desc { font-size: 0.78rem; color: var(--muted); }
+  .pills { display: flex; gap: 4px; flex-wrap: wrap; justify-content: end; }
+  .pill { font-size: 0.68rem; font-weight: 600; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { color: var(--ok); background: var(--ok-bg); }
+  .pill.warn { color: var(--warn); background: var(--warn-bg); }
+  .pill.alarm { color: var(--alarm); background: var(--alarm-bg); }
+  .pill.mode { color: var(--fg); background: var(--bg); }
+  .fp-vals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+  .fp-vals .v { font-family: var(--font-mono); font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+  .fp-vals .k { font-size: 0.66rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+  .sw { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+  .gauge { position: relative; height: 10px; background: var(--grid); border-radius: 999px; }
+  .gauge .fill { position: absolute; inset: 0 auto 0 0; background: var(--pv); border-radius: 999px; }
+  .gauge .mark { position: absolute; top: -3px; bottom: -3px; width: 3px; margin-left: -1.5px; background: var(--sp); border-radius: 2px; }
+  .gauge.out .fill { background: var(--out); }
+  .glabel { display: flex; justify-content: space-between; font-size: 0.66rem; color: var(--muted); font-family: var(--font-mono); }
+  .fp canvas { width: 100%; height: 70px; display: block; }
+  .fp-ctl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .fp-ctl .grp { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; color: var(--muted); }
+  .fp-ctl button { padding: 5px 9px; }
+  .tune { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); }
+  .note { color: var(--muted); font-size: 0.8rem; margin: 0; max-width: 70ch; }
+  @media (max-width: 640px) { .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (prefers-reduced-motion: reduce) { .flow { display: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Boiler Control Simulator</h1>
+      <p class="sub">Deaerator, feedwater, drum level and burner, all under automatic PID control. Steam demand changes by itself.</p>
+    </div>
+    <div class="btns">
+      <button type="button" id="autoLoad" class="on">Auto load: on</button>
+      <button type="button" id="loadDn">Load −10</button>
+      <button type="button" id="loadUp">Load +10</button>
+      <button type="button" id="pause">Pause</button>
+      <button type="button" id="reset">Reset</button>
+    </div>
+  </header>
+
+  <section class="card strip">
+    <div class="kv"><div class="k">Steam demand</div><div class="v" id="sD">0 <small>t/h</small></div></div>
+    <div class="kv"><div class="k">Steam generated</div><div class="v" id="sG">0 <small>t/h</small></div></div>
+    <div class="kv"><div class="k">Firing rate</div><div class="v" id="sF">0 <small>%</small></div></div>
+    <div class="kv"><div class="k">Feedwater</div><div class="v" id="sW">0 <small>t/h</small></div></div>
+    <div class="kv"><div class="k">Makeup water</div><div class="v" id="sM">0 <small>t/h</small></div></div>
+  </section>
+
+  <section class="card mimic" aria-label="Plant mimic diagram">
+    <svg viewBox="0 0 900 470" role="img" aria-label="Boiler plant diagram with live values">
+      <!-- Makeup water into deaerator via LCV-300 -->
+      <path class="pipe water" d="M10 70 H150 V100"/>
+      <path class="flow" id="fMakeup" d="M10 70 H150 V100"/>
+      <polygon class="valve" points="70,60 70,80 90,70" /><polygon class="valve" points="110,60 110,80 90,70"/>
+      <line x1="90" y1="70" x2="90" y2="54" stroke="var(--fg)" stroke-width="1.6"/>
+      <rect x="82" y="46" width="16" height="8" class="valve"/>
+      <text class="small" x="70" y="96">LCV-300</text>
+      <text class="lbl" x="10" y="58">Makeup</text>
+
+      <!-- Pegging steam into deaerator via PCV-301 -->
+      <path class="pipe steam" d="M680 30 H250 V100"/>
+      <path class="flow" id="fPeg" d="M680 30 H250 V100"/>
+      <polygon class="valve" points="370,20 370,40 390,30"/><polygon class="valve" points="410,20 410,40 390,30"/>
+      <line x1="390" y1="30" x2="390" y2="14" stroke="var(--fg)" stroke-width="1.6"/>
+      <rect x="382" y="6" width="16" height="8" class="valve"/>
+      <text class="small" x="372" y="56">PCV-301</text>
+      <text class="small" x="430" y="22">pegging steam</text>
+
+      <!-- Deaerator vessel -->
+      <defs>
+        <clipPath id="clipDA"><rect x="60" y="100" width="260" height="80" rx="40"/></clipPath>
+        <clipPath id="clipDrum"><rect x="560" y="110" width="240" height="70" rx="35"/></clipPath>
+        <radialGradient id="flameGrad" cx="50%" cy="85%" r="70%">
+          <stop offset="0%" stop-color="var(--flame-core)"/>
+          <stop offset="100%" stop-color="var(--flame)" stop-opacity="0.85"/>
+        </radialGradient>
+      </defs>
+      <rect class="vessel" x="60" y="100" width="260" height="80" rx="40"/>
+      <rect class="liquid" id="daLiq" x="60" y="140" width="260" height="40" clip-path="url(#clipDA)"/>
+      <rect class="vessel" x="60" y="100" width="260" height="80" rx="40" fill="none" style="fill:none"/>
+      <text class="lbl c" x="190" y="128">DEAERATOR</text>
+      <text class="val c" x="190" y="146" id="daTxt">60.0 % · 0.35 bar</text>
+
+      <!-- DA outlet to feed pump -->
+      <path class="pipe water" d="M190 180 V300 H260"/>
+      <path class="flow" id="fFw1" d="M190 180 V300 H260"/>
+      <circle class="pumpbody" cx="285" cy="300" r="24"/>
+      <polygon points="273,288 273,312 300,300" fill="var(--fg)"/>
+      <text class="small" x="262" y="342">P-200</text>
+      <text class="small" x="248" y="355">feed pump</text>
+
+      <!-- Feedwater to drum via FT-201 and FCV-201 -->
+      <path class="pipe water" d="M309 300 H520 V145 H560"/>
+      <path class="flow" id="fFw2" d="M309 300 H520 V145 H560"/>
+      <circle cx="370" cy="300" r="6" fill="var(--panel)" stroke="var(--fg)" stroke-width="1.6"/>
+      <text class="small" x="355" y="322">FT-201</text>
+      <polygon class="valve" points="420,290 420,310 440,300"/><polygon class="valve" points="460,290 460,310 440,300"/>
+      <line x1="440" y1="300" x2="440" y2="284" stroke="var(--fg)" stroke-width="1.6"/>
+      <rect x="432" y="276" width="16" height="8" class="valve"/>
+      <text class="small" x="420" y="326">FCV-201</text>
+
+      <!-- Furnace, tubes, burner -->
+      <rect class="furnace" x="580" y="215" width="200" height="200" rx="6"/>
+      <line class="tube" x1="610" y1="180" x2="610" y2="400"/>
+      <line class="tube" x1="750" y1="180" x2="750" y2="400"/>
+      <line class="tube" x1="610" y1="400" x2="750" y2="400"/>
+      <g id="flame" transform="translate(680 405)">
+        <path d="M-40 0 C-40 -40 -15 -60 0 -110 C15 -60 40 -40 40 0 Z" fill="url(#flameGrad)"/>
+      </g>
+      <text class="lbl c" x="680" y="236">FURNACE</text>
+      <rect x="655" y="415" width="50" height="16" fill="var(--panel)" stroke="var(--fg)" stroke-width="1.6" rx="3"/>
+      <text class="small" x="796" y="400">B-100</text>
+      <text class="small" x="796" y="413">burner</text>
+
+      <!-- Fuel line via FCV-100 -->
+      <path class="pipe fuel" d="M450 460 H680 V431"/>
+      <path class="flow" id="fFuel" d="M450 460 H680 V431"/>
+      <polygon class="valve" points="530,450 530,470 550,460"/><polygon class="valve" points="570,450 570,470 550,460"/>
+      <line x1="550" y1="460" x2="550" y2="444" stroke="var(--fg)" stroke-width="1.6"/>
+      <rect x="542" y="436" width="16" height="8" class="valve"/>
+      <text class="small" x="470" y="452">fuel</text>
+      <text class="small" x="580" y="452">FCV-100</text>
+
+      <!-- Steam drum -->
+      <rect class="vessel" x="560" y="110" width="240" height="70" rx="35"/>
+      <rect class="liquid" id="drumLiq" x="560" y="145" width="240" height="35" clip-path="url(#clipDrum)"/>
+      <rect x="560" y="110" width="240" height="70" rx="35" style="fill:none;stroke:var(--line);stroke-width:2.5"/>
+      <line x1="580" y1="145" x2="780" y2="145" stroke="var(--sp)" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text class="lbl c" x="680" y="132">STEAM DRUM</text>
+      <text class="val c" x="680" y="170" id="drumTxt">50.0 %</text>
+
+      <!-- Steam out to header and users -->
+      <path class="pipe steam" d="M680 110 V30 H890"/>
+      <path class="flow" id="fSteam" d="M680 110 V30 H890"/>
+      <polygon class="valve" points="800,20 800,40 820,30"/><polygon class="valve" points="840,20 840,40 820,30"/>
+      <text class="small" x="790" y="56">steam users</text>
+      <text class="val" x="790" y="72" id="demandTxt">70 t/h</text>
+
+      <!-- Instrument bubbles and signal lines -->
+      <path class="sig" d="M150 210 V160 M150 210 H90 V80"/>
+      <g class="bubble" transform="translate(150 225)"><circle r="20"/><text class="tag" y="-2">LIC</text><text class="tag" y="10">300</text></g>
+      <text class="val" x="118" y="262" id="bLic300">60.0 %</text>
+
+      <path class="sig" d="M300 210 V182 M300 210 H330 V40 H390"/>
+      <g class="bubble" transform="translate(300 225)"><circle r="20"/><text class="tag" y="-2">PIC</text><text class="tag" y="10">301</text></g>
+      <text class="val" x="270" y="262" id="bPic301">0.35 bar</text>
+
+      <path class="sig" d="M490 200 V145 M490 200 H440 V284"/>
+      <g class="bubble" transform="translate(490 200)"><circle r="20"/><text class="tag" y="-2">LIC</text><text class="tag" y="10">200</text></g>
+      <text class="val" x="460" y="237" id="bLic200">50.0 %</text>
+
+      <path class="sig" d="M370 255 V294 M390 250 H440"/>
+      <g class="bubble" transform="translate(370 240)"><circle r="20"/><text class="tag" y="-2">FIC</text><text class="tag" y="10">201</text></g>
+      <text class="val" x="340" y="208" id="bFic201">70 t/h</text>
+      <path class="sig" d="M470 200 L390 236"/>
+
+      <path class="sig" d="M760 60 V30 M760 90 H860 V440 H558"/>
+      <g class="bubble" transform="translate(760 75)"><circle r="20"/><text class="tag" y="-2">PIC</text><text class="tag" y="10">100</text></g>
+      <text class="val" x="806" y="110" id="bPic100">40.0 bar</text>
+      <text class="small" x="808" y="250">firing</text>
+      <text class="small" x="808" y="263">demand</text>
+    </svg>
+  </section>
+
+  <section class="loops" id="loops"></section>
+
+  <p class="note">How it is wired: PIC-100 holds steam pressure by trimming the burner on top of a steam-demand feedforward. LIC-200 and FIC-201 form a three-element drum level control: the level controller adds a correction to the measured steam flow, and that becomes the feedwater flow setpoint. LIC-300 keeps the deaerator level with makeup water, and PIC-301 holds deaerator pressure with pegging steam. Switch any loop to MAN to drive its output yourself and see what the rest of the plant does.</p>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const DT = 0.05, HIST = 240, SAMPLE = 0.5;
+
+  class PID {
+    constructor(o) { Object.assign(this, o); this.reset(); }
+    reset() { this.sp = this.sp0; this.mode = "AUTO"; this.integ = this.out0; this.out = this.out0; this.hist = []; }
+    pct(v) { return (v - this.lo) / (this.hi - this.lo) * 100; }
+    update(pv) {
+      this.pv = pv;
+      if (this.mode !== "AUTO") { this.integ = this.out; return this.out; }
+      const e = this.pct(this.sp) - this.pct(pv);
+      const raw = this.kp * e + this.integ + this.ki * e * DT;
+      if (!((raw > 100 && e > 0) || (raw < 0 && e < 0))) this.integ += this.ki * e * DT;
+      this.integ = Math.max(-50, Math.min(150, this.integ));
+      this.out = Math.max(0, Math.min(100, this.kp * e + this.integ));
+      return this.out;
+    }
+  }
+
+  const loops = {
+    pic100: new PID({ tag: "PIC-100", desc: "Steam pressure → burner firing", unit: "bar", lo: 0, hi: 60, sp0: 40, step: 1, dp: 1, kp: 1.5, ki: 0.03, out0: 50, outLbl: "trim %", alarm: [34, 46] }),
+    lic200: new PID({ tag: "LIC-200", desc: "Drum level → feedwater flow SP", unit: "%", lo: 0, hi: 100, sp0: 50, step: 2, dp: 1, kp: 1.5, ki: 0.05, out0: 50, outLbl: "corr %", alarm: [35, 65] }),
+    fic201: new PID({ tag: "FIC-201", desc: "Feedwater flow → FCV-201", unit: "t/h", lo: 0, hi: 130, sp0: 70, step: 0, dp: 1, kp: 0.6, ki: 0.8, out0: 53.8, outLbl: "valve %", cascade: true }),
+    lic300: new PID({ tag: "LIC-300", desc: "Deaerator level → makeup LCV-300", unit: "%", lo: 0, hi: 100, sp0: 60, step: 2, dp: 1, kp: 4, ki: 0.15, out0: 53.8, outLbl: "valve %", alarm: [40, 80] }),
+    pic301: new PID({ tag: "PIC-301", desc: "Deaerator pressure → pegging PCV-301", unit: "bar", lo: 0, hi: 1, sp0: 0.35, step: 0.02, dp: 2, kp: 0.6, ki: 0.12, out0: 49, outLbl: "valve %", alarm: [0.2, 0.5] }),
+  };
+  const order = ["pic100", "lic200", "fic201", "lic300", "pic301"];
+
+  let s, paused = false, autoLoad = true;
+  function init() {
+    s = { t: 0, D: 70, Dt: 70, Fa: 63.6, fire: 63.6, G: 70, P: 40, L: 50, Fw: 70, Ld: 60, M: 70, p: 0.35, nextLoad: 15, nextSample: 0 };
+    order.forEach(k => loops[k].reset());
+  }
+
+  function step() {
+    s.t += DT;
+    if (autoLoad && s.t >= s.nextLoad) { s.Dt = 40 + Math.random() * 55; s.nextLoad = s.t + 25; }
+    s.D += Math.max(-2 * DT, Math.min(2 * DT, s.Dt - s.D));
+
+    // Burner: pressure controller trims a steam-demand feedforward.
+    const trim = loops.pic100.update(s.P);
+    s.fire = Math.max(0, Math.min(100, s.D / 1.1 + (trim - 50)));
+    s.Fa += (s.fire - s.Fa) * DT / 2;
+    s.G += (s.Fa * 1.1 - s.G) * DT / 4;
+    s.P = Math.max(0, s.P + (s.G - s.D) / 30 * DT);
+
+    // Three-element drum level: LIC-200 corrects steam flow to give FIC-201 its setpoint.
+    const corr = loops.lic200.update(s.L);
+    if (loops.fic201.mode === "AUTO") loops.fic201.sp = Math.max(0, Math.min(130, s.G + (corr - 50)));
+    const fv = loops.fic201.update(s.Fw);
+    const pumpOk = s.Ld > 2;
+    s.Fw += ((pumpOk ? fv * 1.3 : 0) - s.Fw) * DT / 1.5;
+    s.L = Math.max(0, Math.min(100, s.L + (s.Fw - s.G) / 6 * DT));
+
+    // Deaerator level and pressure.
+    const mv = loops.lic300.update(s.Ld);
+    s.M += (mv * 1.3 - s.M) * DT / 2;
+    s.Ld = Math.max(0, Math.min(100, s.Ld + (s.M - s.Fw) / 25 * DT));
+    const pv = loops.pic301.update(s.p);
+    s.p = Math.max(0, Math.min(1, s.p + (pv - 0.5 * s.M - 40 * s.p) / 200 * DT));
+
+    if (s.t >= s.nextSample) {
+      s.nextSample = s.t + SAMPLE;
+      order.forEach(k => {
+        const L = loops[k];
+        L.hist.push([L.pct(L.sp), L.pct(L.pv ?? L.sp), L.out]);
+        if (L.hist.length > HIST) L.hist.shift();
+      });
+    }
+  }
+
+  // Faceplates
+  $("loops").innerHTML = order.map(k => {
+    const L = loops[k];
+    return `
+    <article class="card fp" id="fp-${k}">
+      <div class="fp-head">
+        <div><div class="fp-tag">${L.tag}</div><div class="fp-desc">${L.desc}</div></div>
+        <div class="pills"><span class="pill mode" id="${k}-mode">AUTO</span><span class="pill ok" id="${k}-st">Normal</span></div>
+      </div>
+      <div class="fp-vals">
+        <div><div class="k"><i class="sw" style="background:var(--sp)"></i>SP ${L.unit}</div><div class="v" id="${k}-sp">0</div></div>
+        <div><div class="k"><i class="sw" style="background:var(--pv)"></i>PV ${L.unit}</div><div class="v" id="${k}-pv">0</div></div>
+        <div><div class="k"><i class="sw" style="background:var(--out)"></i>OUT %</div><div class="v" id="${k}-out">0</div></div>
+      </div>
+      <div class="gauge" aria-hidden="true"><div class="fill" id="${k}-gpv"></div><div class="mark" id="${k}-gsp"></div></div>
+      <div class="glabel"><span>${L.lo}</span><span>PV vs SP</span><span>${L.hi}</span></div>
+      <div class="gauge out" aria-hidden="true"><div class="fill" id="${k}-gout"></div></div>
+      <canvas id="${k}-trend" aria-label="${L.tag} trend, last 2 minutes"></canvas>
+      <div class="fp-ctl">
+        <button type="button" data-k="${k}" data-act="mode">To MAN</button>
+        <span class="grp">SP <button type="button" data-k="${k}" data-act="spdn" ${L.cascade ? "disabled" : ""}>−</button><button type="button" data-k="${k}" data-act="spup" ${L.cascade ? "disabled" : ""}>+</button></span>
+        <span class="grp">OUT <button type="button" data-k="${k}" data-act="outdn" disabled>−</button><button type="button" data-k="${k}" data-act="outup" disabled>+</button></span>
+      </div>
+      <div class="tune">Kp ${L.kp} · Ki ${L.ki} /s${L.cascade ? " · SP from LIC-200 (cascade)" : ""}${k === "pic100" ? " · + steam demand feedforward" : ""}</div>
+    </article>`;
+  }).join("");
+
+  $("loops").addEventListener("click", e => {
+    const b = e.target.closest("button[data-k]");
+    if (!b) return;
+    const L = loops[b.dataset.k], act = b.dataset.act, fp = $("fp-" + b.dataset.k);
+    if (act === "mode") {
+      L.mode = L.mode === "AUTO" ? "MAN" : "AUTO";
+      b.textContent = L.mode === "AUTO" ? "To MAN" : "To AUTO";
+      fp.querySelectorAll('[data-act^="out"]').forEach(x => x.disabled = L.mode === "AUTO");
+      fp.querySelectorAll('[data-act^="sp"]').forEach(x => x.disabled = !!L.cascade && L.mode === "AUTO");
+    } else if (act === "spup" || act === "spdn") {
+      const d = (L.step || 1) * (act === "spup" ? 1 : -1);
+      L.sp = Math.max(L.lo, Math.min(L.hi, +(L.sp + d).toFixed(3)));
+    } else {
+      L.out = Math.max(0, Math.min(100, L.out + (act === "outup" ? 5 : -5)));
+    }
+  });
+
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  function sparkline(cv, hist) {
+    const ctx = cv.getContext("2d"), dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1;
+    [0, 50, 100].forEach(v => { const y = 2 + (1 - v / 100) * (h - 4); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); });
+    const draw = (i, color, lw, dash) => {
+      if (hist.length < 2) return;
+      ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.setLineDash(dash); ctx.beginPath();
+      hist.forEach((p, j) => {
+        const x = (j + HIST - hist.length) / (HIST - 1) * w, y = 2 + (1 - Math.max(0, Math.min(100, p[i])) / 100) * (h - 4);
+        j ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      });
+      ctx.stroke(); ctx.setLineDash([]);
+    };
+    draw(2, css("--out"), 1.2, []);
+    draw(0, css("--sp"), 1.5, [4, 3]);
+    draw(1, css("--pv"), 2, []);
+  }
+
+  const flows = { fMakeup: 0, fPeg: 0, fFw1: 0, fFw2: 0, fFuel: 0, fSteam: 0 };
+  function render(dtReal) {
+    $("sD").innerHTML = `${s.D.toFixed(1)} <small>t/h</small>`;
+    $("sG").innerHTML = `${s.G.toFixed(1)} <small>t/h</small>`;
+    $("sF").innerHTML = `${s.fire.toFixed(1)} <small>%</small>`;
+    $("sW").innerHTML = `${s.Fw.toFixed(1)} <small>t/h</small>`;
+    $("sM").innerHTML = `${s.M.toFixed(1)} <small>t/h</small>`;
+
+    const daH = 80 * s.Ld / 100; $("daLiq").setAttribute("y", 180 - daH); $("daLiq").setAttribute("height", daH);
+    const drH = 70 * s.L / 100; $("drumLiq").setAttribute("y", 180 - drH); $("drumLiq").setAttribute("height", drH);
+    $("daTxt").textContent = `${s.Ld.toFixed(1)} % · ${s.p.toFixed(2)} bar`;
+    $("drumTxt").textContent = `${s.L.toFixed(1)} %`;
+    $("demandTxt").textContent = `${s.D.toFixed(0)} t/h`;
+    $("bLic300").textContent = `${s.Ld.toFixed(1)} %`;
+    $("bPic301").textContent = `${s.p.toFixed(2)} bar`;
+    $("bLic200").textContent = `${s.L.toFixed(1)} %`;
+    $("bFic201").textContent = `${s.Fw.toFixed(0)} t/h`;
+    $("bPic100").textContent = `${s.P.toFixed(1)} bar`;
+    const fs = 0.15 + 0.85 * s.Fa / 100;
+    $("flame").setAttribute("transform", `translate(680 405) scale(${(0.6 + 0.4 * fs).toFixed(3)} ${fs.toFixed(3)})`);
+
+    // Animate flow dashes at a speed proportional to each flow.
+    const rate = { fMakeup: s.M, fPeg: loops.pic301.out, fFw1: s.Fw, fFw2: s.Fw, fFuel: s.Fa, fSteam: s.D };
+    if (!paused) for (const id in flows) { flows[id] -= rate[id] * 0.6 * dtReal; $(id).style.strokeDashoffset = flows[id]; }
+
+    order.forEach(k => {
+      const L = loops[k], pv = L.pv ?? L.sp;
+      $(k + "-sp").textContent = L.sp.toFixed(L.dp);
+      $(k + "-pv").textContent = pv.toFixed(L.dp);
+      $(k + "-out").textContent = L.out.toFixed(1);
+      $(k + "-gpv").style.width = Math.max(0, Math.min(100, L.pct(pv))) + "%";
+      $(k + "-gsp").style.left = Math.max(0, Math.min(100, L.pct(L.sp))) + "%";
+      $(k + "-gout").style.width = L.out + "%";
+      $(k + "-mode").textContent = L.mode === "AUTO" ? (L.cascade ? "CAS" : "AUTO") : "MAN";
+      const st = $(k + "-st"), dev = Math.abs(L.pct(pv) - L.pct(L.sp));
+      let cls = "ok", txt = "Normal";
+      if (L.alarm && (pv < L.alarm[0] || pv > L.alarm[1])) { cls = "alarm"; txt = pv < L.alarm[0] ? "LO alarm" : "HI alarm"; }
+      else if (dev > 5) { cls = "warn"; txt = "Deviation"; }
+      else if (L.out <= 0.5 || L.out >= 99.5) { cls = "warn"; txt = "Output limit"; }
+      st.className = "pill " + cls; st.textContent = txt;
+      sparkline($(k + "-trend"), L.hist);
+    });
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dtReal = Math.min(0.1, (now - last) / 1000); last = now;
+    if (!paused) step();
+    render(dtReal);
+    requestAnimationFrame(frame);
+  }
+
+  $("autoLoad").addEventListener("click", e => {
+    autoLoad = !autoLoad; s.nextLoad = s.t + 3;
+    e.target.textContent = "Auto load: " + (autoLoad ? "on" : "off");
+    e.target.classList.toggle("on", autoLoad);
+  });
+  $("loadUp").addEventListener("click", () => { s.Dt = Math.min(110, s.Dt + 10); s.nextLoad = s.t + 25; });
+  $("loadDn").addEventListener("click", () => { s.Dt = Math.max(10, s.Dt - 10); s.nextLoad = s.t + 25; });
+  $("pause").addEventListener("click", e => { paused = !paused; e.target.textContent = paused ? "Resume" : "Pause"; e.target.classList.toggle("on", paused); });
+  $("reset").addEventListener("click", () => {
+    init();
+    document.querySelectorAll('[data-act="mode"]').forEach(b => b.textContent = "To MAN");
+    document.querySelectorAll('[data-act^="out"]').forEach(b => b.disabled = true);
+    order.forEach(k => $("fp-" + k).querySelectorAll('[data-act^="sp"]').forEach(b => b.disabled = !!loops[k].cascade));
+  });
+
+  // Start from a steady plant and pre-run so the trends open with history and a first load change.
+  init();
+  for (let i = 0; i < 120 / DT; i++) step();
+  requestAnimationFrame(frame);
+})();
+</script>
